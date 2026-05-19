@@ -36,14 +36,15 @@ COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
 COPY --from=builder --chown=nestjs:nodejs /app/prisma ./prisma
 COPY --from=builder --chown=nestjs:nodejs /app/package.json ./
+COPY --chown=nestjs:nodejs docker/entrypoint.sh ./entrypoint.sh
+
+RUN chmod +x entrypoint.sh
 
 USER nestjs
 
 EXPOSE 3000
 
-# Health check so Docker/Kubernetes can detect unhealthy containers
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD wget -qO- http://localhost:3000/health || exit 1
 
-# Start command — use node directly (not npm start) for faster startup and proper signal handling
-CMD ["node", "dist/main.js"]
+ENTRYPOINT ["./entrypoint.sh"]
