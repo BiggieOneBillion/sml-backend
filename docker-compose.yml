@@ -1,0 +1,118 @@
+version: '3.9'
+
+services:
+  # ── Application ──────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder # Use builder stage in dev (has devDeps for hot reload)
+    container_name: sml-api
+    command: npm run start:dev
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://sml:sml_dev_password@postgres:5432/sml_db?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Override these in .env.local with real values:
+      JWT_ACCESS_SECRET: dev_access_secret_must_be_at_least_32_chars_long
+      JWT_REFRESH_SECRET: dev_refresh_secret_must_be_at_least_32_chars_long
+      COOKIE_SECRET: dev_cookie_secret_must_be_at_least_32_chars_long
+      STRIPE_SECRET_KEY: sk_test_placeholder_replace_with_real_key
+      STRIPE_WEBHOOK_SECRET: whsec_placeholder_replace_with_real_key
+      STRIPE_INVESTOR_PRICE_ID: price_placeholder
+      BCRYPT_ROUNDS: 10 # Lower in dev for faster tests
+    volumes:
+      - .:/app
+      - /app/node_modules # Prevent local node_modules from overwriting container's
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - sml-network
+    restart: unless-stopped
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: sml-postgres
+    environment:
+      POSTGRES_USER: sml
+      POSTGRES_PASSWORD: sml_dev_password
+      POSTGRES_DB: sml_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sml -d sml_db']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sml-network
+    restart: unless-stopped
+
+  # ── Redis ─────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: sml-redis
+    command: redis-server --appendonly yes --requirepass ""
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - sml-network
+    restart: unless-stopped
+
+  # ── Database Admin (dev only) ─────────────────────────────────────────────────
+  adminer:
+    image: adminer:latest
+    container_name: sml-adminer
+    ports:
+      - '8080:8080'
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      - postgres
+    networks:
+      - sml-network
+    profiles:
+      - tools # Only starts with: docker compose --profile tools up
+
+  # ── Redis Commander (dev only) ─────────────────────────────────────────────────
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: sml-redis-commander
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - '8081:8081'
+    depends_on:
+      - redis
+    networks:
+      - sml-network
+    profiles:
+      - tools
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  sml-network:
+    driver: bridge

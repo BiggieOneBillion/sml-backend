@@ -1,0 +1,729 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enumerations ─────────────────────────────────────────────────────────────
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum PrimaryIntent {
+  INVESTOR
+  IDEA_OWNER
+  BROWSE
+}
+
+enum TwoFaMethod {
+  SMS
+  TOTP
+}
+
+enum KycStatus {
+  NOT_STARTED
+  SUBMITTED
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  TRIALING
+}
+
+enum IdeaStage {
+  IDEA_STAGE
+  MVP
+  PROTOTYPE
+  PRE_SEED
+  SEED
+}
+
+enum IdeaStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  VERIFIED
+  APPROVED
+  LIVE
+  REJECTED
+  CLOSED
+}
+
+enum IdeaFileType {
+  BUSINESS_PLAN
+  PITCH_DECK
+  PITCH_VIDEO
+}
+
+enum FileProcessingStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum MilestoneStatus {
+  UPCOMING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum IdeaUpdateType {
+  GENERAL
+  MILESTONE
+  MONTHLY
+  QUARTERLY
+}
+
+enum UpdateVisibility {
+  PUBLIC
+  INVESTORS_ONLY
+}
+
+enum InvestmentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CARD
+  WALLET
+  BANK_TRANSFER
+}
+
+enum ConnectionStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  BLOCKED
+}
+
+enum WatchlistItemType {
+  IDEA
+  USER
+}
+
+enum NotificationType {
+  MARKET_ALERT
+  NEWS_ANNOUNCEMENT
+  WATCHLIST_UPDATE
+  INVESTMENT_CONFIRMED
+  INVESTMENT_UPDATE
+  CONNECTION_REQUEST
+  CONNECTION_ACCEPTED
+  NEW_MESSAGE
+  KYC_VERIFIED
+  KYC_REJECTED
+  IDEA_APPROVED
+  IDEA_REJECTED
+  IDEA_WENT_LIVE
+  FUNDING_MILESTONE
+}
+
+enum PostType {
+  IDEA
+  BUSINESS
+  REQUEST
+  SERVICE
+  UPDATE
+  PARTNERSHIP
+}
+
+enum PostVisibility {
+  PUBLIC
+  CONNECTIONS_ONLY
+}
+
+enum DevicePlatform {
+  IOS
+  ANDROID
+}
+
+enum Industry {
+  INVESTING
+  ENTREPRENEURSHIP
+  STARTUPS
+  REAL_ESTATE
+  AGRICULTURE
+  ECOMMERCE
+  MARKETING
+  TECHNOLOGY
+  EDUCATION
+  HEALTH
+  TOURISM
+  OTHER
+}
+
+enum FundUsageCategory {
+  PRODUCT_DEVELOPMENT
+  MARKETING
+  OPERATIONS
+  RESEARCH_TESTING
+  EQUIPMENT
+  OTHER
+}
+
+enum UserRole {
+  FOUNDER
+  INVESTOR
+  BUILDER
+  ADVISOR
+  MENTOR
+}
+
+enum TransactionType {
+  CREDIT
+  DEBIT
+}
+
+enum WalletTransactionReference {
+  INVESTMENT
+  TOP_UP
+  REFUND
+  FEE
+}
+
+// ── Core Entities ─────────────────────────────────────────────────────────────
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  fullName     String     @map("full_name")
+  passwordHash String?    @map("password_hash")
+  status       UserStatus @default(PENDING_VERIFICATION)
+  primaryIntent PrimaryIntent @default(BROWSE) @map("primary_intent")
+
+  emailVerifiedAt DateTime? @map("email_verified_at")
+
+  twoFaEnabled Boolean      @default(false) @map("two_fa_enabled")
+  twoFaMethod  TwoFaMethod? @map("two_fa_method")
+  twoFaSecret  String?      @map("two_fa_secret")
+
+  agreedToTermsAt      DateTime? @map("agreed_to_terms_at")
+  agreedToTermsIp      String?   @map("agreed_to_terms_ip")
+  agreedToTermsVersion String?   @default("1.0") @map("agreed_to_terms_version")
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  profile                 UserProfile?
+  interests               UserInterest[]
+  subscription            Subscription?
+  kyc                     KycVerification?
+  emailVerificationTokens EmailVerificationToken[]
+  refreshTokens           RefreshToken[]
+  deviceTokens            DeviceToken[]
+  wallet                  Wallet?
+  ideas                   Idea[]            @relation("FounderIdeas")
+  investments             Investment[]      @relation("InvestorInvestments")
+  sentConnections         Connection[]      @relation("ConnectionRequester")
+  receivedConnections     Connection[]      @relation("ConnectionRecipient")
+  messageThreadsA         MessageThread[]   @relation("ThreadParticipantA")
+  messageThreadsB         MessageThread[]   @relation("ThreadParticipantB")
+  messages                Message[]
+  watchlistItems          WatchlistItem[]
+  posts                   Post[]
+  postLikes               PostLike[]
+  postComments            PostComment[]
+  notifications           Notification[]
+  reviewedIdeas           Idea[]            @relation("IdeaReviewer")
+  reviewedKycs            KycVerification[] @relation("KycReviewer")
+  ideaUpdates             IdeaUpdate[]
+
+  @@map("users")
+}
+
+model UserProfile {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  avatarUrl            String?  @map("avatar_url")
+  occupation           String?
+  industry             Industry?
+  role                 UserRole?
+  locationText         String?  @map("location_text")
+  locationCountry      String?  @map("location_country")
+  locationCity         String?  @map("location_city")
+  bio                  String?  @db.VarChar(150)
+  dateOfBirth          DateTime? @map("date_of_birth") @db.Date
+  nationality          String?
+  investmentExperience String?  @map("investment_experience")
+
+  isVerified Boolean   @default(false) @map("is_verified")
+  verifiedAt DateTime? @map("verified_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("user_profiles")
+}
+
+model UserInterest {
+  userId   String   @map("user_id")
+  interest Industry
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, interest])
+  @@map("user_interests")
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String    @unique
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([token])
+  @@map("email_verification_tokens")
+}
+
+model RefreshToken {
+  id                String    @id @default(uuid())
+  userId            String    @map("user_id")
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash         String    @unique @map("token_hash")
+  deviceFingerprint String?   @map("device_fingerprint")
+  userAgent         String?   @map("user_agent")
+  ipAddress         String?   @map("ip_address")
+  expiresAt         DateTime  @map("expires_at")
+  revokedAt         DateTime? @map("revoked_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model KycVerification {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  fullLegalName      String?   @map("full_legal_name")
+  countryOfResidence String?   @map("country_of_residence")
+  dateOfBirth        DateTime? @map("date_of_birth") @db.Date
+  nationality        String?
+  phoneNumber        String?   @map("phone_number")
+
+  idDocumentKey    String? @map("id_document_key")
+  addressProofKey  String? @map("address_proof_key")
+
+  status          KycStatus @default(NOT_STARTED)
+  rejectionReason String?   @map("rejection_reason")
+  submittedIp     String?   @map("submitted_ip")
+
+  reviewedById String?   @map("reviewed_by_id")
+  reviewedBy   User?     @relation("KycReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime? @map("reviewed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("kyc_verifications")
+}
+
+model Subscription {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  stripeCustomerId     String? @map("stripe_customer_id")
+  stripeSubscriptionId String? @unique @map("stripe_subscription_id")
+
+  status             SubscriptionStatus @default(TRIALING)
+  currentPeriodStart DateTime?          @map("current_period_start")
+  currentPeriodEnd   DateTime?          @map("current_period_end")
+  cancelledAt        DateTime?          @map("cancelled_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("subscriptions")
+}
+
+model Idea {
+  id        String @id @default(uuid())
+  slug      String @unique
+  founderId String @map("founder_id")
+  founder   User   @relation("FounderIdeas", fields: [founderId], references: [id], onDelete: Restrict)
+
+  title               String
+  tagline             String
+  description         String    @db.Text
+  problemStatement    String?   @db.Text @map("problem_statement")
+  solutionDescription String?   @db.Text @map("solution_description")
+  businessModel       String?   @db.Text @map("business_model")
+  category            Industry
+  stage               IdeaStage @default(IDEA_STAGE)
+  locationCountry     String?   @map("location_country")
+  locationCity        String?   @map("location_city")
+  foundingDate        DateTime? @map("founding_date") @db.Date
+  teamSize            Int?      @map("team_size")
+  fundUsage           FundUsageCategory[] @map("fund_usage")
+
+  fundingGoal     Decimal @map("funding_goal") @db.Decimal(14, 2)
+  fundingCurrency String  @default("USD") @map("funding_currency")
+  raisedAmount    Decimal @default(0) @map("raised_amount") @db.Decimal(14, 2)
+  investorCount   Int     @default(0) @map("investor_count")
+  campaignEndDate DateTime? @map("campaign_end_date")
+
+  listingFeePaidAt DateTime? @map("listing_fee_paid_at")
+  listingFeeAmount Decimal?  @map("listing_fee_amount") @db.Decimal(6, 2)
+
+  status    IdeaStatus @default(DRAFT)
+  viewCount Int        @default(0) @map("view_count")
+  saveCount Int        @default(0) @map("save_count")
+
+  reviewedById    String?   @map("reviewed_by_id")
+  reviewedBy      User?     @relation("IdeaReviewer", fields: [reviewedById], references: [id])
+  reviewedAt      DateTime? @map("reviewed_at")
+  rejectionReason String?   @map("rejection_reason")
+
+  publishedAt DateTime? @map("published_at")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  files          IdeaFile[]
+  milestones     IdeaMilestone[]
+  updates        IdeaUpdate[]
+  investments    Investment[]
+  listingPayment ListingPayment?
+  watchlistItems WatchlistItem[]
+
+  @@index([status, publishedAt(sort: Desc)])
+  @@index([founderId])
+  @@index([category])
+  @@index([stage])
+  @@map("ideas")
+}
+
+model IdeaFile {
+  id     String @id @default(uuid())
+  ideaId String @map("idea_id")
+  idea   Idea   @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+
+  fileType         IdeaFileType         @map("file_type")
+  storageKey       String?              @map("storage_key")
+  originalFileName String?              @map("original_file_name")
+  fileSizeBytes    BigInt?              @map("file_size_bytes")
+  mimeType         String?              @map("mime_type")
+  isVideoUrl       Boolean              @default(false) @map("is_video_url")
+  videoUrl         String?              @map("video_url")
+  processingStatus FileProcessingStatus @default(PENDING) @map("processing_status")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("idea_files")
+}
+
+model IdeaMilestone {
+  id     String @id @default(uuid())
+  ideaId String @map("idea_id")
+  idea   Idea   @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  targetDate  DateTime?       @map("target_date")
+  status      MilestoneStatus @default(UPCOMING)
+  completedAt DateTime?       @map("completed_at")
+  sortOrder   Int             @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("idea_milestones")
+}
+
+model IdeaUpdate {
+  id       String @id @default(uuid())
+  ideaId   String @map("idea_id")
+  idea     Idea   @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  authorId String @map("author_id")
+  author   User   @relation(fields: [authorId], references: [id])
+
+  title      String?
+  body       String           @db.Text
+  updateType IdeaUpdateType   @default(GENERAL) @map("update_type")
+  imageUrl   String?          @map("image_url")
+  visibility UpdateVisibility @default(PUBLIC)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([ideaId, createdAt(sort: Desc)])
+  @@map("idea_updates")
+}
+
+model Investment {
+  id         String @id @default(uuid())
+  investorId String @map("investor_id")
+  investor   User   @relation("InvestorInvestments", fields: [investorId], references: [id], onDelete: Restrict)
+  ideaId     String @map("idea_id")
+  idea       Idea   @relation(fields: [ideaId], references: [id], onDelete: Restrict)
+
+  amount            Decimal       @db.Decimal(14, 2)
+  currency          String        @default("USD")
+  platformFeePct    Decimal       @default(0) @map("platform_fee_pct") @db.Decimal(5, 4)
+  platformFeeAmount Decimal       @default(0) @map("platform_fee_amount") @db.Decimal(14, 2)
+  netAmount         Decimal       @map("net_amount") @db.Decimal(14, 2)
+  paymentMethod     PaymentMethod @map("payment_method")
+
+  stripePaymentIntentId String? @map("stripe_payment_intent_id")
+  status                InvestmentStatus @default(PENDING)
+  currentValue          Decimal? @map("current_value") @db.Decimal(14, 2)
+
+  termsAcceptedAt   DateTime? @map("terms_accepted_at")
+  agreementSignedAt DateTime? @map("agreement_signed_at")
+  idempotencyKey    String    @unique @map("idempotency_key")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([investorId])
+  @@index([ideaId])
+  @@index([status])
+  @@map("investments")
+}
+
+model ListingPayment {
+  id     String @id @default(uuid())
+  ideaId String @unique @map("idea_id")
+  idea   Idea   @relation(fields: [ideaId], references: [id], onDelete: Restrict)
+  userId String @map("user_id")
+
+  amount                Decimal          @default(8.00) @db.Decimal(6, 2)
+  currency              String           @default("USD")
+  paymentMethod         String?          @map("payment_method")
+  stripePaymentIntentId String?          @unique @map("stripe_payment_intent_id")
+  status                InvestmentStatus @default(PENDING)
+  paidAt                DateTime?        @map("paid_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("listing_payments")
+}
+
+model Wallet {
+  id       String @id @default(uuid())
+  userId   String @unique @map("user_id")
+  user     User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  balance  Decimal @default(0) @db.Decimal(14, 2)
+  currency String  @default("USD")
+
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+  transactions WalletTransaction[]
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id       String @id @default(uuid())
+  walletId String @map("wallet_id")
+  wallet   Wallet @relation(fields: [walletId], references: [id])
+
+  type          TransactionType
+  amount        Decimal                    @db.Decimal(14, 2)
+  referenceType WalletTransactionReference @map("reference_type")
+  referenceId   String?                    @map("reference_id")
+  balanceAfter  Decimal                    @map("balance_after") @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([walletId, createdAt(sort: Desc)])
+  @@map("wallet_transactions")
+}
+
+model Connection {
+  id          String @id @default(uuid())
+  requesterId String @map("requester_id")
+  requester   User   @relation("ConnectionRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  recipientId String @map("recipient_id")
+  recipient   User   @relation("ConnectionRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  status    ConnectionStatus @default(PENDING)
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+
+  @@unique([requesterId, recipientId])
+  @@map("connections")
+}
+
+model MessageThread {
+  id             String @id @default(uuid())
+  participantAId String @map("participant_a_id")
+  participantA   User   @relation("ThreadParticipantA", fields: [participantAId], references: [id])
+  participantBId String @map("participant_b_id")
+  participantB   User   @relation("ThreadParticipantB", fields: [participantBId], references: [id])
+
+  lastMessageAt DateTime? @map("last_message_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  messages Message[]
+
+  @@unique([participantAId, participantBId])
+  @@map("message_threads")
+}
+
+model Message {
+  id       String        @id @default(uuid())
+  threadId String        @map("thread_id")
+  thread   MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderId String        @map("sender_id")
+  sender   User          @relation(fields: [senderId], references: [id])
+
+  body      String    @db.Text
+  isRead    Boolean   @default(false) @map("is_read")
+  readAt    DateTime? @map("read_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([threadId, createdAt(sort: Desc)])
+  @@map("messages")
+}
+
+model WatchlistItem {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  itemType      WatchlistItemType @map("item_type")
+  ideaId        String?           @map("idea_id")
+  idea          Idea?             @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  watchedUserId String?           @map("watched_user_id")
+  alertsEnabled Boolean           @default(false) @map("alerts_enabled")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, itemType, ideaId])
+  @@map("watchlist_items")
+}
+
+model Post {
+  id       String @id @default(uuid())
+  authorId String @map("author_id")
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  type       PostType
+  title      String?
+  body       String         @db.Text
+  ideaId     String?        @map("idea_id")
+  imageUrl   String?        @map("image_url")
+  tags       String[]
+  visibility PostVisibility @default(PUBLIC)
+
+  likeCount    Int @default(0) @map("like_count")
+  commentCount Int @default(0) @map("comment_count")
+  shareCount   Int @default(0) @map("share_count")
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  likes    PostLike[]
+  comments PostComment[]
+
+  @@index([createdAt(sort: Desc)])
+  @@index([authorId])
+  @@map("posts")
+}
+
+model PostLike {
+  userId String @map("user_id")
+  postId String @map("post_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([userId, postId])
+  @@map("post_likes")
+}
+
+model PostComment {
+  id       String @id @default(uuid())
+  postId   String @map("post_id")
+  post     Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId String @map("author_id")
+  author   User   @relation(fields: [authorId], references: [id])
+
+  body      String    @db.Text
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([postId, createdAt(sort: Desc)])
+  @@map("post_comments")
+}
+
+model Notification {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type          NotificationType
+  title         String
+  body          String
+  referenceType String?  @map("reference_type")
+  referenceId   String?  @map("reference_id")
+
+  isRead    Boolean   @default(false) @map("is_read")
+  readAt    DateTime? @map("read_at")
+  sentAt    DateTime? @map("sent_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+model DeviceToken {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  token      String         @unique
+  platform   DevicePlatform
+  isActive   Boolean        @default(true) @map("is_active")
+  lastSeenAt DateTime?      @map("last_seen_at")
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("device_tokens")
+}
+
+model AuditLog {
+  id         String  @id @default(uuid())
+  userId     String? @map("user_id")
+  action     String
+  entityType String? @map("entity_type")
+  entityId   String? @map("entity_id")
+  meta       Json?
+  ipAddress  String? @map("ip_address")
+  userAgent  String? @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
