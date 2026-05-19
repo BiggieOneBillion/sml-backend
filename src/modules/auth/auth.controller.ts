@@ -10,10 +10,10 @@ import {
   Delete,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { CommandBus } from '@nestjs/cqrs';
 import { Request } from 'express';
 import { Throttle } from '@nestjs/throttler';
 
-import { AuthService } from './auth.service';
 import {
   RegisterSchema,
   LoginSchema,
@@ -31,18 +31,18 @@ import { ApiZodBody } from './dto/zod-dto.helper';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { JwtPayload } from './strategies/jwt-access.strategy';
+import { RegisterCommand } from './commands/register/register.command';
+import { VerifyEmailCommand } from './commands/verify-email/verify-email.command';
+import { ResendVerificationCommand } from './commands/resend-verification/resend-verification.command';
+import { LoginCommand } from './commands/login/login.command';
+import { RefreshTokensCommand } from './commands/refresh-tokens/refresh-tokens.command';
+import { LogoutCommand } from './commands/logout/logout.command';
 
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly commandBus: CommandBus) {}
 
-  /**
-   * POST /auth/register
-   *
-   * Strict rate limiting: 5 attempts per minute per IP.
-   * Prevents account enumeration and credential stuffing.
-   */
   @Public()
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
@@ -55,13 +55,9 @@ export class AuthController {
   @ApiResponse({ status: 422, description: 'Validation failed' })
   async register(@Body() dto: RegisterDto, @Req() req: Request) {
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0] ?? req.ip ?? 'unknown';
-    return this.authService.register(dto, ip);
+    return this.commandBus.execute(new RegisterCommand(dto.email, dto.fullName, dto.password, ip));
   }
 
-  /**
-   * POST /auth/verify-email
-   * Called when the user clicks the link in their verification email.
-   */
   @Public()
   @Post('verify-email')
   @HttpCode(HttpStatus.OK)
@@ -72,13 +68,9 @@ export class AuthController {
   @ApiResponse({ status: 422, description: 'Invalid or expired token' })
   async verifyEmail(@Body() dto: VerifyEmailDto, @Req() req: Request) {
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0] ?? req.ip ?? 'unknown';
-    return this.authService.verifyEmail(dto, ip);
+    return this.commandBus.execute(new VerifyEmailCommand(dto.token, ip));
   }
 
-  /**
-   * POST /auth/resend-verification
-   * Rate limited to 3 per hour per email (enforced in service layer too).
-   */
   @Public()
   @Post('resend-verification')
   @HttpCode(HttpStatus.OK)
@@ -87,14 +79,9 @@ export class AuthController {
   @ApiOperation({ summary: 'Resend email verification link' })
   @ApiZodBody(ResendVerificationSchema)
   async resendVerification(@Body() dto: ResendVerificationDto) {
-    return this.authService.resendVerification(dto);
+    return this.commandBus.execute(new ResendVerificationCommand(dto.email));
   }
 
-  /**
-   * POST /auth/login
-   * Returns both access and refresh tokens.
-   * Strict rate limiting to prevent brute force.
-   */
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -110,14 +97,9 @@ export class AuthController {
     @Headers('user-agent') userAgent: string,
   ) {
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0] ?? req.ip ?? 'unknown';
-    return this.authService.login(dto, ip, userAgent);
+    return this.commandBus.execute(new LoginCommand(dto.email, dto.password, ip, userAgent));
   }
 
-  /**
-   * POST /auth/refresh
-   * Exchanges a refresh token for a new access + refresh token pair.
-   * Implements refresh token rotation — old token is invalidated on use.
-   */
   @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
@@ -129,14 +111,9 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Refresh token invalid or expired' })
   async refreshTokens(@Body() dto: RefreshTokenDto, @Req() req: Request) {
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0] ?? req.ip ?? 'unknown';
-    return this.authService.refreshTokens(dto, ip);
+    return this.commandBus.execute(new RefreshTokensCommand(dto.refreshToken, ip));
   }
 
-  /**
-   * DELETE /auth/logout
-   * Revokes the provided refresh token.
-   * Protected — must be authenticated (has a valid access token).
-   */
   @Delete('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiBearerAuth()
@@ -147,6 +124,6 @@ export class AuthController {
     @CurrentUser() user: JwtPayload,
     @Body() dto: { refreshToken: string },
   ) {
-    await this.authService.logout(user.sub, dto.refreshToken);
+    await this.commandBus.execute(new LogoutCommand(user.sub, dto.refreshToken));
   }
 }

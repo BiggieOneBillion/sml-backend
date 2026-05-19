@@ -3,6 +3,12 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UserStatus } from '@prisma/client';
 
+import { RegisterHandler } from './commands/register/register.handler';
+import { LoginHandler } from './commands/login/login.handler';
+import { ResendVerificationHandler } from './commands/resend-verification/resend-verification.handler';
+import { RegisterCommand } from './commands/register/register.command';
+import { LoginCommand } from './commands/login/login.command';
+import { ResendVerificationCommand } from './commands/resend-verification/resend-verification.command';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../../database/prisma.service';
 import { AppConfigService } from '../../config/app-config.service';
@@ -64,13 +70,18 @@ const mockLogger = {
 
 // ── Test Suite ────────────────────────────────────────────────────────────────
 
-describe('AuthService', () => {
-  let service: AuthService;
+describe('Auth Command Handlers', () => {
+  let registerHandler: RegisterHandler;
+  let loginHandler: LoginHandler;
+  let resendHandler: ResendVerificationHandler;
   let prisma: typeof mockPrismaService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        RegisterHandler,
+        LoginHandler,
+        ResendVerificationHandler,
         AuthService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: JwtService, useValue: mockJwtService },
@@ -79,22 +90,21 @@ describe('AuthService', () => {
       ],
     }).compile();
 
-    service = module.get<AuthService>(AuthService);
+    registerHandler = module.get(RegisterHandler);
+    loginHandler = module.get(LoginHandler);
+    resendHandler = module.get(ResendVerificationHandler);
     prisma = module.get(PrismaService);
 
     jest.clearAllMocks();
   });
 
-  // ── register() ───────────────────────────────────────────────────────────
+  // ── RegisterHandler ───────────────────────────────────────────────────────
 
-  describe('register()', () => {
-    const dto = {
-      fullName: 'Test User',
-      email: 'test@example.com',
-      password: 'Password1!',
-      agreedToTerms: true as const,
-    };
+  describe('RegisterHandler', () => {
     const ip = '127.0.0.1';
+    const email = 'test@example.com';
+    const fullName = 'Test User';
+    const password = 'Password1!';
 
     it('should create a user and return userId with success message', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
@@ -104,8 +114,8 @@ describe('AuthService', () => {
       });
       prisma.user.create.mockResolvedValue({
         id: 'user-uuid-123',
-        email: dto.email,
-        fullName: dto.fullName,
+        email,
+        fullName,
         status: UserStatus.PENDING_VERIFICATION,
       });
       prisma.emailVerificationToken.create.mockResolvedValue({
@@ -113,15 +123,15 @@ describe('AuthService', () => {
         token: 'verification-token-uuid',
       });
 
-      const result = await service.register(dto, ip);
+      const result = await registerHandler.execute(new RegisterCommand(email, fullName, password, ip));
 
       expect(result.userId).toBe('user-uuid-123');
       expect(result.message).toContain('Verification email sent');
       expect(prisma.user.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            email: dto.email,
-            fullName: dto.fullName,
+            email,
+            fullName,
             status: UserStatus.PENDING_VERIFICATION,
             agreedToTermsAt: expect.any(Date),
             agreedToTermsIp: ip,
@@ -133,44 +143,46 @@ describe('AuthService', () => {
     it('should throw DuplicateEmailException if email already exists', async () => {
       prisma.user.findUnique.mockResolvedValue({ id: 'existing-user' });
 
-      await expect(service.register(dto, ip)).rejects.toThrow(DuplicateEmailException);
+      await expect(
+        registerHandler.execute(new RegisterCommand(email, fullName, password, ip)),
+      ).rejects.toThrow(DuplicateEmailException);
       expect(prisma.user.create).not.toHaveBeenCalled();
     });
 
     it('should hash the password before storing', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
       prisma.runTransaction.mockImplementation(async (fn: any) => fn(prisma));
-      prisma.user.create.mockResolvedValue({ id: 'uid', email: dto.email, fullName: dto.fullName, status: UserStatus.PENDING_VERIFICATION });
+      prisma.user.create.mockResolvedValue({
+        id: 'uid',
+        email,
+        fullName,
+        status: UserStatus.PENDING_VERIFICATION,
+      });
       prisma.emailVerificationToken.create.mockResolvedValue({ id: 't', token: 'tok' });
 
-      await service.register(dto, ip);
+      await registerHandler.execute(new RegisterCommand(email, fullName, password, ip));
 
       const createCall = prisma.user.create.mock.calls[0][0];
       const storedHash = createCall.data.passwordHash;
 
-      // Hash must not be the plain password
-      expect(storedHash).not.toBe(dto.password);
-      // Hash must be a valid bcrypt hash
-      const isValid = await bcrypt.compare(dto.password, storedHash);
+      expect(storedHash).not.toBe(password);
+      const isValid = await bcrypt.compare(password, storedHash);
       expect(isValid).toBe(true);
     });
   });
 
-  // ── login() ───────────────────────────────────────────────────────────────
+  // ── LoginHandler ──────────────────────────────────────────────────────────
 
-  describe('login()', () => {
+  describe('LoginHandler', () => {
     const password = 'Password1!';
-    const dto = {
-      email: 'test@example.com',
-      password,
-    };
+    const email = 'test@example.com';
     const ip = '127.0.0.1';
 
     it('should return auth result with tokens on valid credentials', async () => {
       const hash = await bcrypt.hash(password, 10);
       prisma.user.findUnique.mockResolvedValue({
         id: 'user-id',
-        email: dto.email,
+        email,
         fullName: 'Test User',
         passwordHash: hash,
         status: UserStatus.ACTIVE,
@@ -179,66 +191,75 @@ describe('AuthService', () => {
       prisma.refreshToken.create.mockResolvedValue({});
       prisma.refreshToken.deleteMany.mockResolvedValue({});
 
-      const result = await service.login(dto, ip);
+      const result = await loginHandler.execute(new LoginCommand(email, password, ip));
 
-      expect(result.user.email).toBe(dto.email);
+      expect(result.user.email).toBe(email);
       expect(result.tokens.accessToken).toBeDefined();
       expect(result.tokens.refreshToken).toBeDefined();
-      expect(result.tokens.expiresIn).toBe(900); // 15 minutes
+      expect(result.tokens.expiresIn).toBe(900);
     });
 
     it('should throw InvalidCredentialsException for wrong password', async () => {
       const hash = await bcrypt.hash('correct-password', 10);
       prisma.user.findUnique.mockResolvedValue({
         id: 'user-id',
-        email: dto.email,
+        email,
         passwordHash: hash,
         status: UserStatus.ACTIVE,
       });
 
-      await expect(service.login(dto, ip)).rejects.toThrow(InvalidCredentialsException);
+      await expect(loginHandler.execute(new LoginCommand(email, password, ip))).rejects.toThrow(
+        InvalidCredentialsException,
+      );
     });
 
     it('should throw InvalidCredentialsException for non-existent email (no user enumeration)', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
-      // Should throw same exception — not reveal whether user exists
-      await expect(service.login(dto, ip)).rejects.toThrow(InvalidCredentialsException);
+      await expect(loginHandler.execute(new LoginCommand(email, password, ip))).rejects.toThrow(
+        InvalidCredentialsException,
+      );
     });
 
     it('should throw EmailNotVerifiedException for unverified user', async () => {
       const hash = await bcrypt.hash(password, 10);
       prisma.user.findUnique.mockResolvedValue({
         id: 'user-id',
-        email: dto.email,
+        email,
         passwordHash: hash,
         status: UserStatus.PENDING_VERIFICATION,
         emailVerifiedAt: null,
       });
 
-      await expect(service.login(dto, ip)).rejects.toThrow(EmailNotVerifiedException);
+      await expect(loginHandler.execute(new LoginCommand(email, password, ip))).rejects.toThrow(
+        EmailNotVerifiedException,
+      );
     });
 
     it('should throw BusinessRuleException for suspended accounts', async () => {
       const hash = await bcrypt.hash(password, 10);
       prisma.user.findUnique.mockResolvedValue({
         id: 'user-id',
-        email: dto.email,
+        email,
         passwordHash: hash,
         status: UserStatus.SUSPENDED,
       });
 
-      await expect(service.login(dto, ip)).rejects.toThrow(BusinessRuleException);
+      await expect(loginHandler.execute(new LoginCommand(email, password, ip))).rejects.toThrow(
+        BusinessRuleException,
+      );
     });
   });
 
-  // ── resendVerification() ──────────────────────────────────────────────────
+  // ── ResendVerificationHandler ─────────────────────────────────────────────
 
-  describe('resendVerification()', () => {
+  describe('ResendVerificationHandler', () => {
     it('should return safe message even if email does not exist (prevent enumeration)', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
-      const result = await service.resendVerification({ email: 'nonexistent@test.com' });
+      const result = await resendHandler.execute(
+        new ResendVerificationCommand('nonexistent@test.com'),
+      );
 
       expect(result.message).toContain('If an account with that email exists');
       expect(prisma.emailVerificationToken.create).not.toHaveBeenCalled();
@@ -248,12 +269,11 @@ describe('AuthService', () => {
       prisma.user.findUnique.mockResolvedValue({
         id: 'user-id',
         status: UserStatus.PENDING_VERIFICATION,
-        emailVerifiedAt: null,
       });
-      prisma.emailVerificationToken.count.mockResolvedValue(3); // already at limit
+      prisma.emailVerificationToken.count.mockResolvedValue(3);
 
       await expect(
-        service.resendVerification({ email: 'test@example.com' }),
+        resendHandler.execute(new ResendVerificationCommand('test@example.com')),
       ).rejects.toThrow(BusinessRuleException);
     });
   });

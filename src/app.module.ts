@@ -8,6 +8,7 @@ import { AppConfigService } from './config/app-config.service';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
+import { EmailModule } from './modules/email/email.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { RequestLoggingInterceptor } from './common/interceptors/request-logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
@@ -32,6 +33,7 @@ import { AppLogger } from './logger/app-logger.service';
     }),
 
     DatabaseModule,
+    EmailModule,
     AuthModule,
     UsersModule,
     // Future modules added here as phases complete

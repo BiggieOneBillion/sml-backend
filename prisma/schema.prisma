@@ -191,6 +191,18 @@ enum TransactionType {
   DEBIT
 }
 
+enum EmailOutboxStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
+enum EmailTemplate {
+  VERIFY_EMAIL
+  WELCOME
+}
+
 enum WalletTransactionReference {
   INVESTMENT
   TOP_UP
@@ -709,6 +721,24 @@ model DeviceToken {
 
   @@index([userId])
   @@map("device_tokens")
+}
+
+model EmailOutbox {
+  id          String            @id @default(uuid())
+  to          String
+  subject     String
+  template    EmailTemplate
+  payload     Json
+  status      EmailOutboxStatus @default(PENDING)
+  attempts    Int               @default(0)
+  maxAttempts Int               @default(3)     @map("max_attempts")
+  lastError   String?           @map("last_error")
+  scheduledAt DateTime          @default(now()) @map("scheduled_at")
+  processedAt DateTime?         @map("processed_at")
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  @@index([status, scheduledAt])
+  @@map("email_outbox")
 }
 
 model AuditLog {
