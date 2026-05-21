@@ -22,11 +22,17 @@ export class VerifyEmailHandler implements ICommandHandler<VerifyEmailCommand> {
   }
 
   async execute(command: VerifyEmailCommand): Promise<AuthResult> {
-    const { token, ipAddress } = command;
+    const { token, registrationToken, ipAddress } = command;
 
     const tokenRecord = await this.prisma.emailVerificationToken.findUnique({
       where: { token },
-      include: { user: true },
+      select: {
+        id: true,
+        userId: true,
+        usedAt: true,
+        expiresAt: true,
+        registrationToken: true,
+      },
     });
 
     if (!tokenRecord) {
@@ -45,6 +51,13 @@ export class VerifyEmailHandler implements ICommandHandler<VerifyEmailCommand> {
 
     if (tokenRecord.expiresAt < new Date()) {
       throw new TokenExpiredException();
+    }
+
+    if (tokenRecord.registrationToken !== registrationToken) {
+      throw new BusinessRuleException(
+        'INVALID_REGISTRATION_TOKEN',
+        'This verification attempt is invalid.',
+      );
     }
 
     const user = await this.prisma.runTransaction(async (tx) => {

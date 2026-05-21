@@ -8,7 +8,7 @@ import { PrismaService } from '../../../../database/prisma.service';
 import { AppConfigService } from '../../../../config/app-config.service';
 import { AppLogger } from '../../../../logger/app-logger.service';
 import { DuplicateEmailException } from '../../../../common/exceptions/app.exceptions';
-import { maskEmail, addHours } from '../../../../common/utils/helpers';
+import { maskEmail, addMinutes } from '../../../../common/utils/helpers';
 import { EmailOutboxService } from '../../../email/email-outbox.service';
 import { EmailTemplate } from '../../../email/email-template.enum';
 
@@ -23,7 +23,7 @@ export class RegisterHandler implements ICommandHandler<RegisterCommand> {
     this.logger.setContext(RegisterHandler.name);
   }
 
-  async execute(command: RegisterCommand): Promise<{ message: string; userId: string }> {
+  async execute(command: RegisterCommand): Promise<{ message: string; registrationToken: string }> {
     const { email, fullName, password, ipAddress } = command;
 
     const existing = await this.prisma.user.findUnique({
@@ -37,7 +37,7 @@ export class RegisterHandler implements ICommandHandler<RegisterCommand> {
 
     const passwordHash = await bcrypt.hash(password, this.config.security.bcryptRounds);
 
-    const { user } = await this.prisma.runTransaction(async (tx) => {
+    const { user, registrationToken } = await this.prisma.runTransaction(async (tx) => {
       const user = await tx.user.create({
         data: {
           email,
@@ -54,11 +54,13 @@ export class RegisterHandler implements ICommandHandler<RegisterCommand> {
       });
 
       const token = uuidv4();
+      const registrationToken = uuidv4();
       await tx.emailVerificationToken.create({
         data: {
           userId: user.id,
           token,
-          expiresAt: addHours(new Date(), 24),
+          registrationToken,
+          expiresAt: addMinutes(new Date(), 10),
         },
       });
 
@@ -68,11 +70,11 @@ export class RegisterHandler implements ICommandHandler<RegisterCommand> {
         frontendUrl: this.config.frontendUrl,
       });
 
-      return { user };
+      return { user, registrationToken };
     });
 
     this.logger.log('User registered', { userId: user.id, email: maskEmail(email) });
 
-    return { message: 'Verification email sent. Please check your inbox.', userId: user.id };
+    return { message: 'Verification email sent. Please check your inbox.', registrationToken };
   }
 }

@@ -5,7 +5,6 @@ import {
   HttpCode,
   HttpStatus,
   Req,
-  Headers,
   UsePipes,
   Delete,
 } from '@nestjs/common';
@@ -68,7 +67,7 @@ export class AuthController {
   @ApiResponse({ status: 422, description: 'Invalid or expired token' })
   async verifyEmail(@Body() dto: VerifyEmailDto, @Req() req: Request) {
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0] ?? req.ip ?? 'unknown';
-    return this.commandBus.execute(new VerifyEmailCommand(dto.token, ip));
+    return this.commandBus.execute(new VerifyEmailCommand(dto.token, dto.registrationToken, ip));
   }
 
   @Public()
@@ -94,9 +93,9 @@ export class AuthController {
   async login(
     @Body() dto: LoginDto,
     @Req() req: Request,
-    @Headers('user-agent') userAgent: string,
   ) {
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0] ?? req.ip ?? 'unknown';
+    const userAgent = req.headers['user-agent'];
     return this.commandBus.execute(new LoginCommand(dto.email, dto.password, ip, userAgent));
   }
 

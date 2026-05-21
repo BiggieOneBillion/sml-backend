@@ -56,6 +56,7 @@ export const RefreshTokenSchema = z.object({
 
 export const VerifyEmailSchema = z.object({
   token: z.string().uuid('Invalid verification token'),
+  registrationToken: z.string().uuid('Invalid registration token'),
 });
 
 export const ResendVerificationSchema = z.object({

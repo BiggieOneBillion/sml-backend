@@ -125,7 +125,6 @@ describe('Auth Command Handlers', () => {
 
       const result = await registerHandler.execute(new RegisterCommand(email, fullName, password, ip));
 
-      expect(result.userId).toBe('user-uuid-123');
       expect(result.message).toContain('Verification email sent');
       expect(prisma.user.create).toHaveBeenCalledWith(
         expect.objectContaining({
